@@ -249,6 +249,14 @@ class MLEngineer:
 
 <div align="center"><img src="assets/divider.svg" width="100%" alt=""/></div>
 
+## `> snake --eat contributions`
+
+<div align="center">
+<img src="https://raw.githubusercontent.com/chiranji-xt/chiranji-xt/output/snake.svg" alt="Snake eating my contribution graph" width="100%"/>
+</div>
+
+<div align="center"><img src="assets/divider.svg" width="100%" alt=""/></div>
+
 ## `> git stats`
 
 <div align="center">
