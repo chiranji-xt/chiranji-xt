@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="28" viewBox="0 0 1200 28">
+  <defs>
+    <linearGradient id="l1" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#00ff66" stop-opacity="0"/><stop offset="1" stop-color="#00ff66"/></linearGradient>
+    <linearGradient id="l2" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#00ff66"/><stop offset="1" stop-color="#00ff66" stop-opacity="0"/></linearGradient>
+    <filter id="g" x="-10%" y="-300%" width="120%" height="700%"><feGaussianBlur stdDeviation="2" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+  </defs>
+  <rect x="0" y="13" width="535" height="2" fill="url(#l1)" filter="url(#g)"/>
+  <rect x="665" y="13" width="535" height="2" fill="url(#l2)" filter="url(#g)"/>
+  <text x="600" y="20" text-anchor="middle" font-family="Consolas,'Courier New',monospace" font-size="16" fill="#00ff66" letter-spacing="6" filter="url(#g)">0101<animate attributeName="opacity" values="1;0.35;1" dur="2s" repeatCount="indefinite"/></text>
+</svg>
