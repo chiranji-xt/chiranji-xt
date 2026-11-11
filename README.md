@@ -1,9 +1,9 @@
 <div align="center">
 
-<img src="assets/banner.svg" alt="chiranji-xt — ML and Data Science" width="100%"/>
+<img src="assets/hero.svg" alt="chiranji-xt: ML and Data Science" width="100%"/>
 
 <a href="https://github.com/chiranji-xt">
-  <img src="https://readme-typing-svg.demolab.com?font=Fira+Code&weight=500&size=22&pause=1200&color=00FF66&center=true&vCenter=true&width=860&lines=I+make+ML+systems+measurable+and+trustworthy;Robustness+testing+%7C+agent+replay+%7C+leak+prevention;Python+%7C+C%2B%2B+%7C+JavaScript;Always+learning%2C+always+shipping" alt="Typing intro"/>
+  <img src="https://readme-typing-svg.demolab.com?font=Fira+Code&weight=500&size=22&pause=1200&color=00FF66&center=true&vCenter=true&width=900&lines=I+make+ML+systems+measurable+and+trustworthy;Robustness+testing+%7C+agent+replay+%7C+leak+prevention+%7C+intrusion+detection;Python+%7C+C%2B%2B+%7C+JavaScript;Tests+first.+Honest+READMEs.+Reproducible+results." alt="Typing intro"/>
 </a>
 
 <br/>
@@ -18,15 +18,208 @@
 
 ## `> whoami`
 
-I work on **machine learning and data science**, with a habit of building the tools that check whether a model, an agent or a system can actually be trusted: how it fails, why it failed, and what it leaks.
+I work on **machine learning and data science**, and I like building the tools that check whether a model, an agent or a system can actually be trusted: **how it fails, why it failed, and what it leaks.** Every project below ships with automated tests and a README that says plainly what is verified and what is not.
 
 <table>
   <tr><td>🎯 <b>Focus</b></td><td>Machine Learning · Data Science · model evaluation</td></tr>
   <tr><td>🛠️ <b>I build</b></td><td>Robustness testing for detectors · replayable AI-agent runs · on-device leak prevention · ML-assisted intrusion detection</td></tr>
-  <tr><td>🔭 <b>Exploring</b></td><td>Robust ML positioning under noisy, sparse and NLOS signals (<a href="https://github.com/chiranji-xt/locus-x">locus-x</a>)</td></tr>
   <tr><td>🐍 <b>Languages</b></td><td>Python · C++ · JavaScript</td></tr>
-  <tr><td>🧪 <b>Habit</b></td><td>Tests first, measured results, honest status notes in every README</td></tr>
+  <tr><td>🧪 <b>Habit</b></td><td>Tests first · seeded, reproducible experiments · held-out confirmation · honest status notes</td></tr>
 </table>
+
+<div align="center"><img src="assets/divider.svg" width="100%" alt=""/></div>
+
+## `> where my projects fit`
+
+<div align="center">
+<img src="assets/stackmap.svg" width="100%" alt="The ML trust stack: build, test, observe, protect, defend"/>
+</div>
+
+<div align="center"><img src="assets/divider.svg" width="100%" alt=""/></div>
+
+## `> ls projects/`
+
+### 01 · FailureForge: find exactly how a YOLO detector breaks
+
+<a href="https://github.com/chiranji-xt/FailureForge"><img src="assets/p_FailureForge.svg" width="100%" alt="FailureForge"/></a>
+
+<div align="center">
+<img src="assets/pipeline.svg" width="100%" alt="FailureForge pipeline: dataset, perturb, search, confirm, report"/>
+</div>
+
+- **Hunts for the worst case.** Random Search or Optuna TPE explores perturbation settings across 12 families (blur, lighting, weather, lens effects, occlusion, rotation and more) to find the ones that hurt the detector most.
+- **Refuses to fool itself.** Search scores are tuned on a discovery split, then *confirmed on a disjoint holdout with fresh seeds*, so a lucky setting doesn't pass as a real weakness.
+- **Keeps measurements honest.** Verified failures and label-free "prediction instability" are reported separately, and instability is never presented as accuracy. Invalid trials are listed but never scored as zero.
+- **Audited, not assumed.** The matcher and AP code agreed with an independently written reference on 40 random scenes (mAP to 1e-12). Three slow perturbations (`rain`, `lens_flare`, `motion_blur`) were optimised with output verified bit-identical to the originals (`rain` had been a per-pixel Python loop costing ~104 ms per 640×640 image).
+
+<details>
+<summary><b>Usage and design notes</b></summary>
+
+<br/>
+
+```python
+from failureforge.dataset import YoloDataset
+from failureforge.search import SearchSpace, run_random_search, confirm_trials, write_search_report
+
+ds = YoloDataset.from_config("data.yaml")
+discovery, holdout = ds.partition(0.3, seed=123)           # discovery vs held-out split
+space = SearchSpace.default(include=["gaussian_blur", "darken", "rotation"])
+result = run_random_search(det, discovery, budget=20, seed=0, space=space)
+confirmation = confirm_trials(det, holdout, result.trials, top_k=3, n_seeds=3)
+write_search_report(result, "results", confirmation)       # JSON / Markdown / CSV + offline HTML gallery
+```
+
+```bash
+failureforge validate-data --data data.yaml
+failureforge search  --data data.yaml --weights best.pt --method random --budget 30 --metric f1 --gallery
+failureforge compare --data data.yaml --weights best.pt --runs 5 --budget 30   # random vs TPE, equal budget
+```
+
+**Status:** covered by 600+ automated tests that run on CPU with no weights or network, using a rule-based stand-in detector. Runs against real YOLO weights are the next milestone, and the README says so.
+
+</details>
+
+<br/>
+
+### 02 · flightrec: replay a failed agent run, offline
+
+<a href="https://github.com/chiranji-xt/flightrec"><img src="assets/p_flightrec.svg" width="100%" alt="flightrec"/></a>
+
+- **The problem.** An agent run that failed never happens the same way twice: the model answers differently and the search returns new results.
+- **The idea.** Record every model call, tool call, clock read and dice roll to a plain JSON Lines file, then replay it as often as you like with no network and no cost.
+- **It fails loudly.** If your code changes what it does during replay, flightrec raises `ReplayDivergence` and names the step instead of quietly drifting.
+- **It works with the real SDK.** Replayed responses are rebuilt as the Anthropic SDK's own types, including async clients and streams. No runtime dependencies.
+
+<details>
+<summary><b>Record, replay and branch</b></summary>
+
+<br/>
+
+```python
+import flightrec
+
+# Record: calls run for real and are written to the file as they happen.
+with flightrec.Recorder("runs/bad.jsonl") as rec:
+    run_agent(rec.wrap(anthropic.Anthropic()), task)
+
+# Replay: nothing runs. Results come from the file, in order.
+with flightrec.Recorder("runs/bad.jsonl", mode="replay") as rec:
+    run_agent(rec.wrap(None), task)
+
+# Branch: change what step 31 returned and continue live from there.
+with flightrec.Recorder("runs/bad.jsonl", mode="branch", at=31,
+                        response={"results": [{"title": "the right page"}]},
+                        out="runs/bad.branch.jsonl") as rec:
+    run_agent(rec.wrap(anthropic.Anthropic()), task)
+```
+
+```text
+$ flightrec diff runs/demo.jsonl runs/demo-bad.jsonl
+first divergence at step 1: same request, different result
+```
+
+A single self-contained browser viewer (`flightrec view`) lets you scrub the timeline, and a committed recording doubles as a CI regression test that cannot flake. Status: alpha (v0.1), with CI.
+
+</details>
+
+<br/>
+
+### 03 · pasteguard: keep secrets out of AI chats
+
+<a href="https://github.com/chiranji-xt/pasteguard"><img src="assets/p_pasteguard.svg" width="100%" alt="pasteguard"/></a>
+
+- **Catches what matters.** 102 API-key formats across providers, private keys, tokens, passwords in URLs and commands, cards (issuer, length and Luhn checksum), IBANs (mod-97) and national IDs (Aadhaar via Verhoeff checksum, PAN, US SSN).
+- **Stays quiet on purpose.** Placeholders, documentation examples, test card numbers and code that merely *refers* to a secret are ignored, backed by a corpus of innocent text that must stay silent.
+- **Private by construction.** Everything is checked on your device. The extension has no code that can send data anywhere, and the tests enforce that.
+- **Verified, and honest about it.** 355 automated tests pass. The README separates what is verified (detection engine, content script, a hand-checked run on ChatGPT) from what is not yet (other sites, Firefox).
+
+<details>
+<summary><b>What it does to a paste</b></summary>
+
+<br/>
+
+```text
+OPENAI_API_KEY=[REDACTED:OPENAI_API_KEY]
+DATABASE_URL=postgres://app:[REDACTED:URL_CREDENTIALS]@db.internal:5432/app
+GITHUB_TOKEN=[REDACTED:GITHUB_TOKEN]
+```
+
+"Redact and paste" swaps each secret for a label, so you can still ask your question and the AI still knows what was there. A typing banner offers a one-click redact if a secret appears in the message box, without ever interrupting your typing. Three sensitivity levels, per-category switches and a per-value "this is fine" button keep it usable.
+
+</details>
+
+<br/>
+
+### 04 · Arborflow: a C++ firewall from advanced data structures
+
+<a href="https://github.com/chiranji-xt/Arborflow"><img src="assets/p_Arborflow.svg" width="100%" alt="Arborflow"/></a>
+
+| Structure | Where | Complexity | Purpose |
+|---|---|---|---|
+| BitVector | Layer 1 filter | O(1) | Fast /16 prefix blacklist in 8 KB |
+| RS-vEB tree | Layer 2 filter | O(1) amortised | Exact 32-bit IP blacklist |
+| Lock-free SPSC queue | Thread boundary | O(1) | Zero-contention packet hand-off |
+| Max-heap | Scheduler | O(log n) | Priority-based packet ordering |
+| Splay tree | Session tracker | O(log n) amortised | Active-connection cache |
+
+- **Two ways to run.** Live libpcap capture with a blacklist file, or an IPC mode where a Python ML backend (XGBoost + Isolation Forest) controls the C++ engine and blocks attacks dynamically.
+- **Honest roadmap.** Fibonacci-heap QoS, eBPF/XDP offload and benchmarking on real pcap traces are listed as still to do.
+
+<br/>
+
+### 05 · TRASH_WORK: from a citizen's photo to a live map of waste
+
+<a href="https://github.com/chiranji-xt/TRASH_WORK"><img src="assets/p_TRASH_WORK.svg" width="100%" alt="TRASH_WORK"/></a>
+
+```text
+ Flutter app  ───▶  FastAPI backend  ───▶  PostgreSQL + PostGIS
+ (mobile)           (Python)                      │
+                        │                         ▼
+                        ▼                   React dashboard
+                 YOLOv8 inference          (hotspots, status)
+```
+
+- **Full stack, five modules:** `machine-learning`, `backend-database`, `demo-backend`, `mobile-app` and `web-dashboard`, brought up together with Docker Compose.
+- **A real API:** upload a photo with its geolocation, list reports, query reports in an area, filter by `pending` or `cleaned`, and pull aggregated stats and **garbage hotspots**. Status changes need an admin key.
+
+<br/>
+
+### 06 · LOCUS-X: reliable positioning when signals are noisy or blocked
+
+<a href="https://github.com/chiranji-xt/locus-x"><img src="assets/p_locus-x.svg" width="100%" alt="LOCUS-X"/></a>
+
+A **team project** (built by team Epoch_12 at VIT Pune for CODE APEX 3.0) that I forked: a fictional three-floor hospital digital twin plus a reproducible indoor-positioning lab. A simulator produces noisy ranges with NLOS bias and packet loss, and three methods (a baseline, statistical LOCUS-X, and LOCUS-X with a trained LOS/NLOS reliability model) are compared on identical observations.
+
+- **Rigorous evaluation.** A frozen final test on reserved seeds, with a committed `+0.5%` regression guard.
+- **A result worth respecting.** The team's v2 AI model improved classification but did *not* beat the statistical method overall, so the guard rejected it and the runtime kept v1. No post-test tuning was done.
+
+<br/>
+
+### 07 · Square Inch: an image-first studio portfolio
+
+<a href="https://square-interior-2.vercel.app/"><img src="assets/p_square-inch-web.svg" width="100%" alt="Square Inch"/></a>
+
+A live production site for an interior design studio in Pune and Satara: Lenis smooth scroll, GSAP scroll-triggered motion, Framer Motion masks and pinned stories, a swipeable lightbox, per-route SEO shells with a generated sitemap, and content that can be edited without touching code. Respects `prefers-reduced-motion`.
+
+<details>
+<summary><b>More team and hackathon work</b></summary>
+
+<br/>
+
+| Repo | What it is |
+|---|---|
+| [Smart-Garbage-Detection](https://github.com/chiranji-xt/Smart-Garbage-Detection) | Hackathon prototype (team project, fork): AI garbage detection with geospatial mapping, a backend API, a mobile app and a web dashboard |
+| [IoT incident response](https://github.com/chiranji-xt/Cloud-Based-Incident-Response-System-for-IoT-Enviornments) | Team project (fork): real-time IoT monitoring, threat detection and automated response with a cloud dashboard |
+
+</details>
+
+<div align="center"><img src="assets/divider.svg" width="100%" alt=""/></div>
+
+## `> cat skills.json`
+
+<div align="center">
+<img src="assets/skills.svg" width="100%" alt="Skills: ML and data science, systems, web and mobile, engineering"/>
+</div>
 
 <div align="center"><img src="assets/divider.svg" width="100%" alt=""/></div>
 
@@ -40,7 +233,7 @@ I work on **machine learning and data science**, with a habit of building the to
 class MLEngineer:
     focus   = ["Machine Learning", "Data Science"]
     builds  = ["robustness tests", "replayable agents", "leak guards", "intrusion detection"]
-    toolkit = ["Python", "NumPy", "Pandas", "scikit-learn", "XGBoost", "YOLO", "Optuna"]
+    toolkit = ["Python", "NumPy", "scikit-learn", "XGBoost", "YOLO", "Optuna"]
 
     def principle(self):
         return "If it can't be measured, it can't be trusted."
@@ -48,132 +241,11 @@ class MLEngineer:
 
 <div align="center"><img src="assets/divider.svg" width="100%" alt=""/></div>
 
-## `> cat stack.txt`
+## `> git log --how-i-work`
 
 <div align="center">
-
-<img src="https://img.shields.io/badge/Python-010a04?style=for-the-badge&logo=python&logoColor=00ff66" alt="Python"/>
-<img src="https://img.shields.io/badge/NumPy-010a04?style=for-the-badge&logo=numpy&logoColor=00ff66" alt="NumPy"/>
-<img src="https://img.shields.io/badge/Pandas-010a04?style=for-the-badge&logo=pandas&logoColor=00ff66" alt="Pandas"/>
-<img src="https://img.shields.io/badge/scikit--learn-010a04?style=for-the-badge&logo=scikitlearn&logoColor=00ff66" alt="scikit-learn"/>
-<img src="https://img.shields.io/badge/Jupyter-010a04?style=for-the-badge&logo=jupyter&logoColor=00ff66" alt="Jupyter"/>
-<img src="https://img.shields.io/badge/Matplotlib-010a04?style=for-the-badge&logo=plotly&logoColor=00ff66" alt="Matplotlib"/>
-<br/>
-<img src="https://img.shields.io/badge/C++-010a04?style=for-the-badge&logo=cplusplus&logoColor=00ff66" alt="C++"/>
-<img src="https://img.shields.io/badge/JavaScript-010a04?style=for-the-badge&logo=javascript&logoColor=00ff66" alt="JavaScript"/>
-<img src="https://img.shields.io/badge/React-010a04?style=for-the-badge&logo=react&logoColor=00ff66" alt="React"/>
-<img src="https://img.shields.io/badge/Docker-010a04?style=for-the-badge&logo=docker&logoColor=00ff66" alt="Docker"/>
-<img src="https://img.shields.io/badge/Git-010a04?style=for-the-badge&logo=git&logoColor=00ff66" alt="Git"/>
-<img src="https://img.shields.io/badge/GitHub-010a04?style=for-the-badge&logo=github&logoColor=00ff66" alt="GitHub"/>
-
-<img src="assets/divider.svg" width="100%" alt=""/>
-
+<img src="assets/practice.svg" width="100%" alt="How I work: tests first, CI, honest status notes, privacy by design, reproducible results"/>
 </div>
-
-## `> ls projects/`
-
-<div align="center">
-<table>
-  <tr>
-    <td><a href="https://github.com/chiranji-xt/FailureForge"><img src="assets/cards/FailureForge.svg" width="440" alt="FailureForge"/></a></td>
-    <td><a href="https://github.com/chiranji-xt/Arborflow"><img src="assets/cards/Arborflow.svg" width="440" alt="Arborflow"/></a></td>
-  </tr>
-  <tr>
-    <td><a href="https://github.com/chiranji-xt/locus-x"><img src="assets/cards/locus-x.svg" width="440" alt="locus-x"/></a></td>
-    <td><a href="https://github.com/chiranji-xt/TRASH_WORK"><img src="assets/cards/TRASH_WORK.svg" width="440" alt="TRASH_WORK"/></a></td>
-  </tr>
-  <tr>
-    <td><a href="https://github.com/chiranji-xt/flightrec"><img src="assets/cards/flightrec.svg" width="440" alt="flightrec"/></a></td>
-    <td><a href="https://github.com/chiranji-xt/pasteguard"><img src="assets/cards/pasteguard.svg" width="440" alt="pasteguard"/></a></td>
-  </tr>
-  <tr>
-    <td><a href="https://square-interior-2.vercel.app/"><img src="assets/cards/square-inch-web.svg" width="440" alt="square-inch-web"/></a></td>
-    <td><a href="https://github.com/chiranji-xt/Cloud-Based-Incident-Response-System-for-IoT-Enviornments"><img src="assets/cards/Cloud-Based-Incident-Response-System-for-IoT-Enviornments.svg" width="440" alt="IoT incident response"/></a></td>
-  </tr>
-</table>
-
-<sub>Cards marked FORK are team projects or upstream work I forked and built on.</sub>
-
-<img src="assets/divider.svg" width="100%" alt=""/>
-
-</div>
-
-## `> spotlight: FailureForge`
-
-**How does a YOLO detector fail, and can you prove it?** [FailureForge](https://github.com/chiranji-xt/FailureForge) answers that with a repeatable pipeline instead of a few cherry-picked screenshots.
-
-<div align="center">
-<img src="assets/pipeline.svg" width="100%" alt="FailureForge pipeline: dataset, perturb, search, confirm, report"/>
-</div>
-
-- **Hunts for the worst case.** Random Search or Optuna TPE explores perturbation settings (blur, rain, glare, darkening, rotation and more) to find the ones that hurt the detector most.
-- **Refuses to fool itself.** Search scores are tuned on one split and *confirmed on a disjoint holdout with fresh seeds*, so a lucky setting doesn't pass as a real weakness.
-- **Keeps measurements honest.** Verified failures and label-free "prediction instability" are reported separately, and instability is never presented as accuracy.
-- **Audited, not assumed.** The matcher and AP code was checked against an independently written reference on 40 random scenes, and three slow perturbations were sped up with bit-identical output. Over 600 automated tests back it.
-- **Plain about its limits.** It runs today against a rule-based stand-in detector in tests, and says so; runs on real YOLO weights are the next milestone.
-
-<div align="center"><img src="assets/divider.svg" width="100%" alt=""/></div>
-
-## `> under the hood`
-
-<details>
-<summary><b>flightrec</b>: replay a failed AI-agent run offline, then branch from any step</summary>
-
-<br/>
-
-An agent run that failed will never happen the same way twice: the model answers differently, the search returns new results. [flightrec](https://github.com/chiranji-xt/flightrec) turns one bad run into a file you can replay as many times as you like, with no API calls.
-
-```python
-import flightrec
-
-# Record: calls run for real and are written to a JSON Lines file.
-with flightrec.Recorder("runs/bad.jsonl") as rec:
-    run_agent(rec.wrap(anthropic.Anthropic()), task)
-
-# Replay offline: no network, no cost. If your code changes what it does,
-# replay raises ReplayDivergence and names the step instead of quietly drifting.
-with flightrec.Recorder("runs/bad.jsonl", mode="replay") as rec:
-    run_agent(rec.wrap(None), task)
-```
-
-Branch from any step, scrub the run in a browser viewer, or `flightrec diff` two runs to find the first step where they split. No dependencies, and commit a recording as a CI regression test that cannot flake.
-
-</details>
-
-<details>
-<summary><b>pasteguard</b>: stop secrets from being pasted into AI chats</summary>
-
-<br/>
-
-[pasteguard](https://github.com/chiranji-xt/pasteguard) checks what you paste, drop or attach on ChatGPT, Claude, Gemini and other AI chat sites. If it finds an API key, password, private key or personal ID, it holds the paste back and lets you **redact**, paste anyway, or cancel.
-
-```text
-OPENAI_API_KEY=[REDACTED:OPENAI_API_KEY]
-DATABASE_URL=postgres://app:[REDACTED:URL_CREDENTIALS]@db.internal:5432/app
-GITHUB_TOKEN=[REDACTED:GITHUB_TOKEN]
-```
-
-Everything is checked on your device, and the tests enforce that the extension has no code path that sends data anywhere. The detection engine is covered by 350+ automated tests, including a corpus of innocent text that must stay silent.
-
-</details>
-
-<details>
-<summary><b>Arborflow</b>: a C++ firewall built from advanced data structures, with an ML backend</summary>
-
-<br/>
-
-[Arborflow](https://github.com/chiranji-xt/Arborflow) captures live traffic with libpcap, filters packets through a two-layer IP blacklist (a BitVector prefix filter plus a vEB tree for exact match), tracks sessions with a splay tree and schedules packets by priority with a max-heap. An optional Python backend (XGBoost + Isolation Forest) talks to the C++ engine over IPC to detect and block attacks dynamically.
-
-</details>
-
-<details>
-<summary><b>TRASH_WORK</b>: from a citizen's photo to a map of waste</summary>
-
-<br/>
-
-[TRASH_WORK](https://github.com/chiranji-xt/TRASH_WORK) is a Smart Garbage Detection and Community Mapping platform: YOLOv8 detects garbage in citizen-submitted photos, geotagged reports are stored in PostGIS, and a Flutter mobile app and React dashboard visualise them for municipal clean-up teams. Docker Compose brings the stack up.
-
-</details>
 
 <div align="center"><img src="assets/divider.svg" width="100%" alt=""/></div>
 
